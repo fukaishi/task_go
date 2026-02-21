@@ -55,18 +55,42 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("62")).
 			Padding(0, 1)
+
+	// 通知タイトル
+	notificationTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("15")).
+				Background(lipgloss.Color("196")).
+				Padding(0, 1)
+
+	// 通知ボーダー
+	notificationSectionStyle = lipgloss.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					BorderForeground(lipgloss.Color("196")).
+					Padding(0, 1)
+
+	// 通知メッセージ
+	notificationMessageStyle = lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color("196"))
 )
 
 func (m model) View() string {
 	activeSection := m.renderActiveSection()
-	listSection := m.renderListSection()
-	helpSection := m.renderHelpSection()
 
-	sections := []string{activeSection, listSection}
+	var sections []string
+	sections = append(sections, activeSection)
+
+	// 未読通知がある場合のみ通知セクションを表示
+	if len(m.notifications) > 0 {
+		sections = append(sections, m.renderNotificationSection())
+	}
+
+	sections = append(sections, m.renderListSection())
 	if m.showDetail {
 		sections = append(sections, m.renderDetailSection())
 	}
-	sections = append(sections, helpSection)
+	sections = append(sections, m.renderHelpSection())
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
@@ -163,10 +187,36 @@ func (m model) renderDetailSection() string {
 	return title + "\n" + box
 }
 
+// renderNotificationSection は通知バナーを描画する(最大3件)
+func (m model) renderNotificationSection() string {
+	title := notificationTitleStyle.Render(" 通知 ")
+
+	count := len(m.notifications)
+	if count > 3 {
+		count = 3
+	}
+
+	var lines []string
+	for i := 0; i < count; i++ {
+		n := m.notifications[i]
+		lines = append(lines, notificationMessageStyle.Render(fmt.Sprintf("  %s", n.Message)))
+	}
+	if len(m.notifications) > 3 {
+		lines = append(lines, helpStyle.Render(fmt.Sprintf("  ...他 %d 件", len(m.notifications)-3)))
+	}
+	lines = append(lines, helpStyle.Render("  rキーで既読にする"))
+
+	content := strings.Join(lines, "\n")
+	w := m.contentWidth()
+	box := notificationSectionStyle.Width(w).Render(content)
+
+	return title + "\n" + box
+}
+
 // renderHelpSection はショートカットキー一覧を描画する
 func (m model) renderHelpSection() string {
 	line1 := "a:追加 e:編集 t:作業中 w:確認待ち u:未着手 f:完了"
-	line2 := "h:高 m:中 l:低 j/↓:下 k/↑:上 Space:詳細 q:終了"
+	line2 := "h:高 m:中 l:低 j/↓:下 k/↑:上 Space:詳細 r:既読 q:終了"
 	content := helpStyle.Render(line1) + "\n" + helpStyle.Render(line2)
 
 	w := m.contentWidth()
