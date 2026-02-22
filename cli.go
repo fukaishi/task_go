@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -13,7 +14,7 @@ import (
 // runCLI はCLIサブコマンドを処理する
 func runCLI(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("サブコマンドを指定してください: list, add, update, get, current, mcp")
+		return fmt.Errorf("サブコマンドを指定してください: list, add, update, get, current, mcp, version")
 	}
 
 	switch args[0] {
@@ -31,6 +32,9 @@ func runCLI(args []string) error {
 		return cmdNotify(args[1:])
 	case "mcp":
 		return cmdMCP(args[1:])
+	case "version", "--version", "-v":
+		fmt.Println(Version)
+		return nil
 	case "help", "--help", "-h":
 		printUsage()
 		return nil
@@ -54,6 +58,7 @@ func printUsage() {
   current              現在のセッションのタスクを表示
   notify               セッションを確認待ち状態にする
   mcp                  MCPサーバーを起動
+  version              バージョンを表示
   help                 ヘルプを表示`)
 }
 
@@ -268,7 +273,43 @@ func cmdCurrent(args []string) error {
 	return fmt.Errorf("タスク #%d が見つかりません", taskID)
 }
 
-// cmdNotify はセッションを確認待ち状態にする（Stopフックから呼ばれる想定）
+// hookInput はClaude Codeのhooksから渡されるJSON入力を表す
+type hookInput struct {
+	SessionID        string `json:"session_id"`
+	CWD              string `json:"cwd"`
+	HookEventName    string `json:"hook_event_name"`
+	NotificationType string `json:"notification_type"`
+}
+
+// processHookNotification はhook入力を処理してセッションメッセージを更新する
+func processHookNotification(input hookInput) error {
+	if input.SessionID == "" {
+		return nil
+	}
+
+	// セッション未バインド時は何もしない
+	if _, ok := GetTaskBySession(input.SessionID); !ok {
+		return nil
+	}
+
+	switch input.HookEventName {
+	case "Notification":
+		var message string
+		switch input.NotificationType {
+		case "idle_prompt":
+			message = "入力待ち"
+		case "permission_prompt":
+			message = "許可が必要"
+		}
+		return UpdateSessionStatusAndMessage(input.SessionID, StatusWorking, message)
+	case "Stop":
+		return UnbindSession(input.SessionID)
+	default:
+		return nil
+	}
+}
+
+// cmdNotify はセッションを確認待ち状態にする（hooks/手動から呼ばれる）
 func cmdNotify(args []string) error {
 	fs := flag.NewFlagSet("notify", flag.ExitOnError)
 	sessionFlag := fs.String("session", "", "セッションID")
@@ -276,40 +317,40 @@ func cmdNotify(args []string) error {
 		return err
 	}
 
+	// 1. --session フラグ or 環境変数: セッションの確認待ち処理
 	sessionID := *sessionFlag
 	if sessionID == "" {
 		sessionID = os.Getenv("CLAUDE_SESSION_ID")
 	}
-	if sessionID == "" {
-		return fmt.Errorf("セッションIDを --session フラグまたは CLAUDE_SESSION_ID 環境変数で指定してください")
-	}
+	if sessionID != "" {
+		taskID, ok := GetTaskBySession(sessionID)
+		if !ok {
+			return nil
+		}
 
-	// セッションからタスクIDを取得
-	taskID, ok := GetTaskBySession(sessionID)
-	if !ok {
-		// 紐付けがなければ何もしない（エラーにはしない）
+		if err := UpdateSessionStatusAndMessage(sessionID, StatusWaiting, ""); err != nil {
+			return fmt.Errorf("セッション更新に失敗: %w", err)
+		}
+
+		fmt.Fprintf(os.Stdout, "タスク #%d を確認待ちにしました\n", taskID)
 		return nil
 	}
 
-	// セッションのステータスを「確認待ち」に変更
-	if err := UpdateSessionStatus(sessionID, StatusWaiting); err != nil {
-		return fmt.Errorf("セッション更新に失敗: %w", err)
+	// 2. stdin からJSON読み取り（hooks経由）
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("stdinの読み取りに失敗: %w", err)
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("stdinが空です")
 	}
 
-	// 通知を追加
-	store, err := LoadStore()
-	if err == nil {
-		for _, t := range store.Tasks {
-			if t.ID == taskID {
-				AddNotification(taskID, NotifyActionNeeded,
-					fmt.Sprintf("タスク #%d「%s」: 確認してください", taskID, t.Name))
-				break
-			}
-		}
+	var input hookInput
+	if err := json.Unmarshal(data, &input); err != nil {
+		return fmt.Errorf("JSONのパースに失敗: %w", err)
 	}
 
-	fmt.Fprintf(os.Stdout, "タスク #%d を確認待ちにしました\n", taskID)
-	return nil
+	return processHookNotification(input)
 }
 
 // filterByStatus は指定ステータスのタスクだけを返す

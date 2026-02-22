@@ -13,6 +13,7 @@ type SessionBinding struct {
 	SessionID string    `json:"session_id"`
 	TaskID    int       `json:"task_id"`
 	Status    Status    `json:"status"`
+	Message   string    `json:"message,omitempty"`
 	StartedAt time.Time `json:"started_at"`
 }
 
@@ -157,6 +158,31 @@ func UpdateSessionStatus(sessionID string, status Status) error {
 		for i := range store.Bindings {
 			if store.Bindings[i].SessionID == sessionID {
 				store.Bindings[i].Status = status
+				return
+			}
+		}
+	})
+}
+
+// UpdateSessionMessage はセッションのメッセージを更新する
+func UpdateSessionMessage(sessionID string, message string) error {
+	return SaveSessionWithLock(func(store *SessionStore) {
+		for i := range store.Bindings {
+			if store.Bindings[i].SessionID == sessionID {
+				store.Bindings[i].Message = message
+				return
+			}
+		}
+	})
+}
+
+// UpdateSessionStatusAndMessage はセッションのステータスとメッセージを同時に更新する
+func UpdateSessionStatusAndMessage(sessionID string, status Status, message string) error {
+	return SaveSessionWithLock(func(store *SessionStore) {
+		for i := range store.Bindings {
+			if store.Bindings[i].SessionID == sessionID {
+				store.Bindings[i].Status = status
+				store.Bindings[i].Message = message
 				return
 			}
 		}
