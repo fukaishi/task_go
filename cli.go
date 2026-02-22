@@ -301,6 +301,9 @@ func processHookNotification(input hookInput) error {
 		case "permission_prompt":
 			message = "許可が必要"
 		}
+		if message == "" {
+			return nil
+		}
 		return UpdateSessionStatusAndMessage(input.SessionID, StatusWorking, message)
 	case "Stop":
 		return UnbindSession(input.SessionID)
