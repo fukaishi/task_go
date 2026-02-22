@@ -1,7 +1,9 @@
 .PHONY: build install clean test
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+
 build:
-	go build -o task_go .
+	go build -ldflags "-X main.Version=$(VERSION)" -o task_go .
 
 install: build
 	mkdir -p ~/bin

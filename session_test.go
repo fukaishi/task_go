@@ -104,6 +104,80 @@ func TestGetTaskBySessionNotFound(t *testing.T) {
 	}
 }
 
+func TestUpdateSessionMessage(t *testing.T) {
+	setupTestDir(t)
+
+	BindSession("session-msg", 1, StatusWorking)
+
+	err := UpdateSessionMessage("session-msg", "入力待ち")
+	if err != nil {
+		t.Fatalf("UpdateSessionMessage error: %v", err)
+	}
+
+	store, _ := LoadSessionStore()
+	for _, b := range store.Bindings {
+		if b.SessionID == "session-msg" {
+			if b.Message != "入力待ち" {
+				t.Errorf("Message = %q, want %q", b.Message, "入力待ち")
+			}
+			if b.Status != StatusWorking {
+				t.Errorf("Status = %q, want %q", b.Status, StatusWorking)
+			}
+			return
+		}
+	}
+	t.Error("Binding not found")
+}
+
+func TestUpdateSessionStatusAndMessage(t *testing.T) {
+	setupTestDir(t)
+
+	BindSession("session-sm", 1, StatusWorking)
+
+	err := UpdateSessionStatusAndMessage("session-sm", StatusWaiting, "確認してください")
+	if err != nil {
+		t.Fatalf("UpdateSessionStatusAndMessage error: %v", err)
+	}
+
+	store, _ := LoadSessionStore()
+	for _, b := range store.Bindings {
+		if b.SessionID == "session-sm" {
+			if b.Status != StatusWaiting {
+				t.Errorf("Status = %q, want %q", b.Status, StatusWaiting)
+			}
+			if b.Message != "確認してください" {
+				t.Errorf("Message = %q, want %q", b.Message, "確認してください")
+			}
+			return
+		}
+	}
+	t.Error("Binding not found")
+}
+
+func TestUpdateSessionMessageClearsMessage(t *testing.T) {
+	setupTestDir(t)
+
+	BindSession("session-clear", 1, StatusWorking)
+	UpdateSessionMessage("session-clear", "入力待ち")
+
+	// メッセージをクリア
+	err := UpdateSessionMessage("session-clear", "")
+	if err != nil {
+		t.Fatalf("UpdateSessionMessage error: %v", err)
+	}
+
+	store, _ := LoadSessionStore()
+	for _, b := range store.Bindings {
+		if b.SessionID == "session-clear" {
+			if b.Message != "" {
+				t.Errorf("Message = %q, want empty", b.Message)
+			}
+			return
+		}
+	}
+	t.Error("Binding not found")
+}
+
 func TestSessionConcurrentWrite(t *testing.T) {
 	setupTestDir(t)
 

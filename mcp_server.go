@@ -18,7 +18,7 @@ func cmdMCP(args []string) error {
 
 	s := server.NewMCPServer(
 		"task_go",
-		"1.0.0",
+		Version,
 		server.WithToolCapabilities(true),
 	)
 
@@ -28,7 +28,6 @@ func cmdMCP(args []string) error {
 	s.AddTool(mcpCreateTaskTool(), mcpCreateTaskHandler)
 	s.AddTool(mcpUpdateTaskTool(), mcpUpdateTaskHandler)
 	s.AddTool(mcpStartTaskTool(), mcpStartTaskHandler)
-	s.AddTool(mcpCompleteTaskTool(), mcpCompleteTaskHandler)
 	s.AddTool(mcpCurrentTaskTool(), mcpCurrentTaskHandler)
 	s.AddTool(mcpNotifyActionNeededTool(), mcpNotifyActionNeededHandler)
 
@@ -283,60 +282,6 @@ func mcpStartTaskHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp
 		return mcp.NewToolResultError(fmt.Sprintf("セッション紐付けに失敗: %v", err)), nil
 	}
 
-	// 通知送信
-	AddNotification(id, NotifyTaskStarted, fmt.Sprintf("タスク #%d「%s」の作業を開始しました", id, updatedTask.Name))
-
-	data, _ := json.MarshalIndent(updatedTask, "", "  ")
-	return mcp.NewToolResultText(string(data)), nil
-}
-
-// --- complete_task ---
-
-func mcpCompleteTaskTool() mcp.Tool {
-	return mcp.NewTool("complete_task",
-		mcp.WithDescription("タスクを完了にし、セッション紐付けを解除する。TUIに通知を送信する。"),
-		mcp.WithNumber("id",
-			mcp.Required(),
-			mcp.Description("タスクID"),
-		),
-	)
-}
-
-func mcpCompleteTaskHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	id := request.GetInt("id", 0)
-	if id == 0 {
-		return mcp.NewToolResultError("タスクIDを指定してください"), nil
-	}
-
-	found := false
-	var updatedTask Task
-
-	err := SaveWithLock(func(store *TaskStore) {
-		for i := range store.Tasks {
-			if store.Tasks[i].ID == id {
-				found = true
-				store.Tasks[i].Status = StatusCompleted
-				store.Tasks[i].UpdatedAt = time.Now()
-				updatedTask = store.Tasks[i]
-				return
-			}
-		}
-	})
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("タスクの更新に失敗: %v", err)), nil
-	}
-	if !found {
-		return mcp.NewToolResultError(fmt.Sprintf("タスク #%d が見つかりません", id)), nil
-	}
-
-	// セッション紐付け解除（タスクIDから逆引き）
-	if sessionID, ok := GetSessionByTask(id); ok {
-		UnbindSession(sessionID)
-	}
-
-	// 通知送信
-	AddNotification(id, NotifyTaskCompleted, fmt.Sprintf("タスク #%d「%s」が完了しました", id, updatedTask.Name))
-
 	data, _ := json.MarshalIndent(updatedTask, "", "  ")
 	return mcp.NewToolResultText(string(data)), nil
 }
@@ -366,20 +311,8 @@ func mcpNotifyActionNeededHandler(ctx context.Context, request mcp.CallToolReque
 	}
 
 	// セッションのステータスを「確認待ち」に変更
-	if err := UpdateSessionStatus(sessionID, StatusWaiting); err != nil {
+	if err := UpdateSessionStatusAndMessage(sessionID, StatusWaiting, ""); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("セッション更新に失敗: %v", err)), nil
-	}
-
-	// タスク名を取得して通知
-	store, err := LoadStore()
-	if err == nil {
-		for _, t := range store.Tasks {
-			if t.ID == taskID {
-				AddNotification(taskID, NotifyActionNeeded,
-					fmt.Sprintf("タスク #%d「%s」: 確認してください", taskID, t.Name))
-				break
-			}
-		}
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("タスク #%d を確認待ちにしました", taskID)), nil
