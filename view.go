@@ -131,7 +131,9 @@ func (m model) findSessionBinding(taskID int) (SessionBinding, bool) {
 		if b.Status == StatusWaiting {
 			best = b
 		} else if b.Message != "" && best.Status != StatusWaiting {
-			best = b
+			if best.Message == "" || best.Status != StatusWorking {
+				best = b
+			}
 		}
 	}
 	return best, found
