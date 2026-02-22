@@ -73,6 +73,14 @@ var (
 	notificationMessageStyle = lipgloss.NewStyle().
 					Bold(true).
 					Foreground(lipgloss.Color("196"))
+
+	// セッション連携インジケーター
+	sessionWorkingStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("39")). // 水色
+				Bold(true)
+	sessionActionNeededStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("214")). // オレンジ
+					Bold(true)
 )
 
 func (m model) View() string {
@@ -104,7 +112,17 @@ func (m model) renderActiveSection() string {
 		lines = append(lines, helpStyle.Render("(なし)"))
 	} else {
 		for _, t := range m.working {
-			lines = append(lines, fmt.Sprintf("#%d %s", t.ID, t.Name))
+			line := fmt.Sprintf("#%d %s", t.ID, t.Name)
+			// セッション紐付けを確認し、状態に応じたインジケーターを表示
+			if binding, ok := m.findSessionBinding(t.ID); ok {
+				switch binding.Status {
+				case StatusWorking:
+					line += "  " + sessionWorkingStyle.Render(">> Claude稼働中")
+				case StatusWaiting:
+					line += "  " + sessionActionNeededStyle.Render("!! 確認してください")
+				}
+			}
+			lines = append(lines, line)
 		}
 	}
 
@@ -113,6 +131,16 @@ func (m model) renderActiveSection() string {
 	box := sectionStyle.Width(w).Render(content)
 
 	return title + "\n" + box
+}
+
+// findSessionBinding はタスクIDに対応するセッションバインディングを返す
+func (m model) findSessionBinding(taskID int) (SessionBinding, bool) {
+	for _, b := range m.sessions.Bindings {
+		if b.TaskID == taskID {
+			return b, true
+		}
+	}
+	return SessionBinding{}, false
 }
 
 // renderListSection はタスク一覧セクションを描画する

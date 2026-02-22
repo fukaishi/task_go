@@ -27,6 +27,8 @@ func runCLI(args []string) error {
 		return cmdGet(args[1:])
 	case "current":
 		return cmdCurrent(args[1:])
+	case "notify":
+		return cmdNotify(args[1:])
 	case "mcp":
 		return cmdMCP(args[1:])
 	case "help", "--help", "-h":
@@ -50,6 +52,7 @@ func printUsage() {
   update <id>          タスクを更新
   get <id>             タスク詳細を表示
   current              現在のセッションのタスクを表示
+  notify               セッションを確認待ち状態にする
   mcp                  MCPサーバーを起動
   help                 ヘルプを表示`)
 }
@@ -263,6 +266,50 @@ func cmdCurrent(args []string) error {
 	}
 
 	return fmt.Errorf("タスク #%d が見つかりません", taskID)
+}
+
+// cmdNotify はセッションを確認待ち状態にする（Stopフックから呼ばれる想定）
+func cmdNotify(args []string) error {
+	fs := flag.NewFlagSet("notify", flag.ExitOnError)
+	sessionFlag := fs.String("session", "", "セッションID")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	sessionID := *sessionFlag
+	if sessionID == "" {
+		sessionID = os.Getenv("CLAUDE_SESSION_ID")
+	}
+	if sessionID == "" {
+		return fmt.Errorf("セッションIDを --session フラグまたは CLAUDE_SESSION_ID 環境変数で指定してください")
+	}
+
+	// セッションからタスクIDを取得
+	taskID, ok := GetTaskBySession(sessionID)
+	if !ok {
+		// 紐付けがなければ何もしない（エラーにはしない）
+		return nil
+	}
+
+	// セッションのステータスを「確認待ち」に変更
+	if err := UpdateSessionStatus(sessionID, StatusWaiting); err != nil {
+		return fmt.Errorf("セッション更新に失敗: %w", err)
+	}
+
+	// 通知を追加
+	store, err := LoadStore()
+	if err == nil {
+		for _, t := range store.Tasks {
+			if t.ID == taskID {
+				AddNotification(taskID, NotifyActionNeeded,
+					fmt.Sprintf("タスク #%d「%s」: 確認してください", taskID, t.Name))
+				break
+			}
+		}
+	}
+
+	fmt.Fprintf(os.Stdout, "タスク #%d を確認待ちにしました\n", taskID)
+	return nil
 }
 
 // filterByStatus は指定ステータスのタスクだけを返す

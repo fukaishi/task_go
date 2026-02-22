@@ -30,6 +30,7 @@ type model struct {
 	visible              []Task         // 完了以外のタスク(ソート済み)
 	working              []Task         // 作業中タスク(ソート済み)
 	notifications        []Notification // 未読通知
+	sessions             SessionStore   // セッション紐付け情報
 	cursor               int            // タスク一覧のカーソル位置
 	offset               int            // タスク一覧のスクロールオフセット
 	width                int            // ターミナル幅
@@ -37,6 +38,7 @@ type model struct {
 	showDetail           bool           // タスク詳細パネルの表示フラグ
 	lastLoadTime         time.Time
 	lastNotificationTime time.Time
+	lastSessionTime      time.Time
 	err                  error
 }
 
@@ -47,14 +49,17 @@ func newModel() model {
 	working := FilterWorking(store.Tasks)
 	SortTasks(working)
 	notifications, _ := UnreadNotifications()
+	sessions, _ := LoadSessionStore()
 
 	return model{
 		store:                store,
 		visible:              visible,
 		working:              working,
 		notifications:        notifications,
+		sessions:             sessions,
 		lastLoadTime:         FileModTime(),
 		lastNotificationTime: NotificationFileModTime(),
+		lastSessionTime:      SessionFileModTime(),
 		width:                80,
 		height:               24,
 	}
@@ -91,6 +96,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.notifications = notifications
 			}
 			m.lastNotificationTime = notifModTime
+		}
+		// セッションファイルの更新日時をチェック
+		sessionModTime := SessionFileModTime()
+		if sessionModTime.After(m.lastSessionTime) {
+			if sessions, err := LoadSessionStore(); err == nil {
+				m.sessions = sessions
+			}
+			m.lastSessionTime = sessionModTime
 		}
 		return m, tickCmd()
 
@@ -257,7 +270,7 @@ func (m *model) setPriority(priority Priority) tea.Cmd {
 	return nil
 }
 
-// reload はストアを再読み込みし、visible/workingを更新する
+// reload はストアを再読み込みし、visible/working/sessionsを更新する
 func (m *model) reload() {
 	store, err := LoadStore()
 	if err != nil {
@@ -270,6 +283,11 @@ func (m *model) reload() {
 	m.working = FilterWorking(store.Tasks)
 	SortTasks(m.working)
 	m.lastLoadTime = FileModTime()
+
+	if sessions, err := LoadSessionStore(); err == nil {
+		m.sessions = sessions
+	}
+	m.lastSessionTime = SessionFileModTime()
 
 	// カーソル位置の調整
 	if m.cursor >= len(m.visible) {

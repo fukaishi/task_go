@@ -6,6 +6,7 @@ build:
 install: build
 	mkdir -p ~/bin
 	cp task_go ~/bin/task_go
+	codesign --force --sign - ~/bin/task_go
 
 clean:
 	rm -f task_go

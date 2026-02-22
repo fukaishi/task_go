@@ -142,6 +142,41 @@ func GetTaskBySession(sessionID string) (int, bool) {
 	return 0, false
 }
 
+// SessionFileModTime はセッションファイルの更新日時を返す
+func SessionFileModTime() time.Time {
+	info, err := os.Stat(sessionPath())
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
+// UpdateSessionStatus はセッションのステータスを更新する
+func UpdateSessionStatus(sessionID string, status Status) error {
+	return SaveSessionWithLock(func(store *SessionStore) {
+		for i := range store.Bindings {
+			if store.Bindings[i].SessionID == sessionID {
+				store.Bindings[i].Status = status
+				return
+			}
+		}
+	})
+}
+
+// GetBindingByTask はタスクIDからセッションバインディングを返す
+func GetBindingByTask(taskID int) (SessionBinding, bool) {
+	store, err := LoadSessionStore()
+	if err != nil {
+		return SessionBinding{}, false
+	}
+	for _, b := range store.Bindings {
+		if b.TaskID == taskID {
+			return b, true
+		}
+	}
+	return SessionBinding{}, false
+}
+
 // GetSessionByTask はタスクIDからセッションIDを返す
 func GetSessionByTask(taskID int) (string, bool) {
 	store, err := LoadSessionStore()
