@@ -26,16 +26,20 @@ type editorFinishedMsg struct {
 
 // model はBubble Teaモデル
 type model struct {
-	store        TaskStore
-	visible      []Task // 完了以外のタスク(ソート済み)
-	working      []Task // 作業中タスク(ソート済み)
-	cursor       int    // タスク一覧のカーソル位置
-	offset       int    // タスク一覧のスクロールオフセット
-	width        int    // ターミナル幅
-	height       int    // ターミナル高さ
-	showDetail   bool   // タスク詳細パネルの表示フラグ
-	lastLoadTime time.Time
-	err          error
+	store                TaskStore
+	visible              []Task         // 完了以外のタスク(ソート済み)
+	working              []Task         // 作業中タスク(ソート済み)
+	notifications        []Notification // 未読通知
+	sessions             SessionStore   // セッション紐付け情報
+	cursor               int            // タスク一覧のカーソル位置
+	offset               int            // タスク一覧のスクロールオフセット
+	width                int            // ターミナル幅
+	height               int            // ターミナル高さ
+	showDetail           bool           // タスク詳細パネルの表示フラグ
+	lastLoadTime         time.Time
+	lastNotificationTime time.Time
+	lastSessionTime      time.Time
+	err                  error
 }
 
 func newModel() model {
@@ -44,14 +48,20 @@ func newModel() model {
 	SortTasks(visible)
 	working := FilterWorking(store.Tasks)
 	SortTasks(working)
+	notifications, _ := UnreadNotifications()
+	sessions, _ := LoadSessionStore()
 
 	return model{
-		store:        store,
-		visible:      visible,
-		working:      working,
-		lastLoadTime: FileModTime(),
-		width:        80,
-		height:       24,
+		store:                store,
+		visible:              visible,
+		working:              working,
+		notifications:        notifications,
+		sessions:             sessions,
+		lastLoadTime:         FileModTime(),
+		lastNotificationTime: NotificationFileModTime(),
+		lastSessionTime:      SessionFileModTime(),
+		width:                80,
+		height:               24,
 	}
 }
 
@@ -78,6 +88,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if modTime.After(m.lastLoadTime) {
 			m.reload()
 			m.lastLoadTime = modTime
+		}
+		// 通知ファイルの更新日時をチェック
+		notifModTime := NotificationFileModTime()
+		if notifModTime.After(m.lastNotificationTime) {
+			if notifications, err := UnreadNotifications(); err == nil {
+				m.notifications = notifications
+			}
+			m.lastNotificationTime = notifModTime
+		}
+		// セッションファイルの更新日時をチェック
+		sessionModTime := SessionFileModTime()
+		if sessionModTime.After(m.lastSessionTime) {
+			if sessions, err := LoadSessionStore(); err == nil {
+				m.sessions = sessions
+			}
+			m.lastSessionTime = sessionModTime
 		}
 		return m, tickCmd()
 
@@ -168,6 +194,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showDetail = !m.showDetail
 			return m, nil
 
+		case "r":
+			// 通知を既読にする
+			if len(m.notifications) > 0 {
+				MarkAllRead()
+				m.notifications = nil
+				m.lastNotificationTime = NotificationFileModTime()
+			}
+			return m, nil
+
 		case "h":
 			return m, m.setPriority(PriorityHigh)
 		case "m":
@@ -235,7 +270,7 @@ func (m *model) setPriority(priority Priority) tea.Cmd {
 	return nil
 }
 
-// reload はストアを再読み込みし、visible/workingを更新する
+// reload はストアを再読み込みし、visible/working/sessionsを更新する
 func (m *model) reload() {
 	store, err := LoadStore()
 	if err != nil {
@@ -248,6 +283,11 @@ func (m *model) reload() {
 	m.working = FilterWorking(store.Tasks)
 	SortTasks(m.working)
 	m.lastLoadTime = FileModTime()
+
+	if sessions, err := LoadSessionStore(); err == nil {
+		m.sessions = sessions
+	}
+	m.lastSessionTime = SessionFileModTime()
 
 	// カーソル位置の調整
 	if m.cursor >= len(m.visible) {
@@ -272,7 +312,16 @@ func (m model) listHeight() int {
 	if m.showDetail {
 		detailLines = 10
 	}
-	overhead := workingLines + helpLines + listHeaderLines + detailLines
+	// 通知バナー: タイトル1 + 枠線上1 + 通知数(最大3) + ヒント1 + 枠線下1
+	notificationLines := 0
+	if len(m.notifications) > 0 {
+		count := len(m.notifications)
+		if count > 3 {
+			count = 3
+		}
+		notificationLines = 1 + count + 1 + 2 // タイトル + 通知行 + ヒント + ボーダー
+	}
+	overhead := workingLines + helpLines + listHeaderLines + detailLines + notificationLines
 	available := m.height - overhead
 	if available < 3 {
 		return 3
