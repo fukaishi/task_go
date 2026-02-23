@@ -198,7 +198,7 @@ func (m model) renderDetailSection() string {
 	lines := []string{
 		fmt.Sprintf("ID:     #%d", t.ID),
 		fmt.Sprintf("名前:   %s", t.Name),
-		fmt.Sprintf("説明:   %s", desc),
+		formatDescription(desc),
 		fmt.Sprintf("状態:   %s", t.Status.Label()),
 		fmt.Sprintf("優先度: %s", t.Priority.Label()),
 		fmt.Sprintf("作成:   %s", t.CreatedAt.Format("2006-01-02 15:04")),
@@ -209,6 +209,20 @@ func (m model) renderDetailSection() string {
 	w := m.contentWidth()
 	box := sectionStyle.Width(w).Render(content)
 	return title + "\n" + box
+}
+
+// formatDescription は説明文を複数行対応でフォーマットする
+func formatDescription(desc string) string {
+	parts := strings.Split(desc, "\n")
+	if len(parts) <= 1 {
+		return fmt.Sprintf("説明:   %s", desc)
+	}
+	lines := make([]string, len(parts))
+	lines[0] = fmt.Sprintf("説明:   %s", parts[0])
+	for i := 1; i < len(parts); i++ {
+		lines[i] = fmt.Sprintf("        %s", parts[i])
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderHelpSection はショートカットキー一覧を描画する

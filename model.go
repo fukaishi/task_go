@@ -330,15 +330,25 @@ func openEditorCmd(editID int, name, description string) tea.Cmd {
 // parseEditorFile はエディタファイルの内容をパースする
 func parseEditorFile(content string) (name, description string) {
 	lines := strings.Split(content, "\n")
+	inDescription := false
+	var descLines []string
 	for _, line := range lines {
 		if strings.HasPrefix(line, "---") {
 			break
 		}
 		if strings.HasPrefix(line, "Name:") {
+			inDescription = false
 			name = strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
 		} else if strings.HasPrefix(line, "Description:") {
-			description = strings.TrimSpace(strings.TrimPrefix(line, "Description:"))
+			inDescription = true
+			descLines = append(descLines, strings.TrimSpace(strings.TrimPrefix(line, "Description:")))
+		} else if inDescription {
+			descLines = append(descLines, line)
 		}
+	}
+	if len(descLines) > 0 {
+		description = strings.Join(descLines, "\n")
+		description = strings.TrimRight(description, "\n")
 	}
 	return
 }
