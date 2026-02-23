@@ -203,10 +203,10 @@ func (m model) renderDetailSection() string {
 
 	lines := []string{
 		fmt.Sprintf("ID:     #%d", t.ID),
-		fmt.Sprintf("名前:   %s", t.Name),
-		formatDescription(desc),
 		fmt.Sprintf("状態:   %s", t.Status.Label()),
 		fmt.Sprintf("優先度: %s", t.Priority.Label()),
+		fmt.Sprintf("名前:   %s", t.Name),
+		formatDescription(desc),
 		fmt.Sprintf("作成:   %s", t.CreatedAt.Format("2006-01-02 15:04")),
 		fmt.Sprintf("更新:   %s", t.UpdatedAt.Format("2006-01-02 15:04")),
 	}
@@ -278,12 +278,12 @@ func formatTaskLine(t Task, selected bool) string {
 	// 優先度ラベル
 	priorityLabel := formatPriority(t.Priority)
 
-	line := fmt.Sprintf("[%s] [%s] #%d %s", statusLabel, priorityLabel, t.ID, t.Name)
+	line := fmt.Sprintf("#%d [%s] [%s] %s", t.ID, statusLabel, priorityLabel, t.Name)
 
 	if selected {
-		return cursorStyle.Render("> " + line)
+		return cursorStyle.Render("> ") + line
 	}
-	return normalStyle.Render("  " + line)
+	return "  " + line
 }
 
 // formatStatus はステータスに応じたスタイル付きラベルを返す
