@@ -71,10 +71,16 @@ func (m model) View() string {
 	var sections []string
 	sections = append(sections, activeSection)
 	sections = append(sections, m.renderListSection())
-	if m.showDetail {
+	if m.urlSelectMode {
+		sections = append(sections, m.renderURLSelectSection())
+	} else if m.showDetail {
 		sections = append(sections, m.renderDetailSection())
 	}
-	sections = append(sections, m.renderHelpSection())
+	if m.statusMessage != "" {
+		sections = append(sections, m.renderStatusMessage())
+	} else {
+		sections = append(sections, m.renderHelpSection())
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
@@ -225,9 +231,39 @@ func formatDescription(desc string) string {
 	return strings.Join(lines, "\n")
 }
 
+// renderURLSelectSection はURL選択パネルを描画する
+func (m model) renderURLSelectSection() string {
+	title := titleStyle.Render(" URL選択 ")
+
+	var lines []string
+	for i, u := range m.urlCandidates {
+		num := fmt.Sprintf("%d. ", i+1)
+		display := truncateURL(u, m.contentWidth()-6)
+		if i == m.urlCursor {
+			lines = append(lines, cursorStyle.Render("> "+num+display))
+		} else {
+			lines = append(lines, normalStyle.Render("  "+num+display))
+		}
+	}
+	lines = append(lines, "")
+	lines = append(lines, helpStyle.Render("j/k:移動 Enter:開く 1-9:番号選択 Esc:戻る"))
+
+	content := strings.Join(lines, "\n")
+	w := m.contentWidth()
+	box := sectionStyle.Width(w).Render(content)
+	return title + "\n" + box
+}
+
+// renderStatusMessage はステータスメッセージをヘルプ領域の代わりに表示する
+func (m model) renderStatusMessage() string {
+	content := helpStyle.Render(m.statusMessage)
+	w := m.contentWidth()
+	return sectionStyle.Width(w).Render(content)
+}
+
 // renderHelpSection はショートカットキー一覧を描画する
 func (m model) renderHelpSection() string {
-	line1 := "a:追加 e:編集 t:作業中 w:確認待ち u:未着手 f:完了"
+	line1 := "a:追加 e:編集 t:作業中 w:確認待ち u:未着手 f:完了 o:URL"
 	line2 := "h:高 m:中 l:低 j/↓:下 k/↑:上 Space:詳細 q:終了"
 	content := helpStyle.Render(line1) + "\n" + helpStyle.Render(line2)
 
