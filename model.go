@@ -24,6 +24,9 @@ type editorFinishedMsg struct {
 	editID      int // 0なら新規、0以外なら編集対象のID
 }
 
+// statusClearMsg はステータスメッセージをクリアするためのメッセージ
+type statusClearMsg struct{}
+
 // model はBubble Teaモデル
 type model struct {
 	store           TaskStore
@@ -35,6 +38,10 @@ type model struct {
 	width           int          // ターミナル幅
 	height          int          // ターミナル高さ
 	showDetail      bool         // タスク詳細パネルの表示フラグ
+	urlSelectMode   bool         // URL選択モード中フラグ
+	urlCandidates   []string     // 抽出されたURL候補
+	urlCursor       int          // URL選択のカーソル位置
+	statusMessage   string       // 一時ステータスメッセージ（3秒で消える）
 	lastLoadTime    time.Time
 	lastSessionTime time.Time
 	err             error
@@ -94,6 +101,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tickCmd()
 
+	case statusClearMsg:
+		m.statusMessage = ""
+		return m, nil
+
 	case editorFinishedMsg:
 		if msg.name == "" {
 			// Name空欄ならキャンセル
@@ -133,9 +144,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickCmd()
 
 	case tea.KeyMsg:
+		// URL選択モード中のキー処理
+		if m.urlSelectMode {
+			return m.handleURLSelectKey(msg)
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+
+		case "o":
+			return m.handleOpenURL()
 
 		case "up", "k":
 			if m.cursor > 0 {
@@ -287,7 +306,10 @@ func (m model) listHeight() int {
 	listHeaderLines := 1
 	// 詳細パネル: タイトル1 + 枠線上1 + 7行 + 枠線下1
 	detailLines := 0
-	if m.showDetail {
+	if m.urlSelectMode {
+		// URL選択パネル: タイトル1 + 枠線上1 + URL数(最低1) + ヒント1 + 枠線下1
+		detailLines = 3 + max(len(m.urlCandidates), 1) + 1
+	} else if m.showDetail {
 		detailLines = 10
 	}
 	overhead := workingLines + helpLines + listHeaderLines + detailLines
@@ -330,15 +352,119 @@ func openEditorCmd(editID int, name, description string) tea.Cmd {
 // parseEditorFile はエディタファイルの内容をパースする
 func parseEditorFile(content string) (name, description string) {
 	lines := strings.Split(content, "\n")
+	inDescription := false
+	var descLines []string
 	for _, line := range lines {
 		if strings.HasPrefix(line, "---") {
 			break
 		}
 		if strings.HasPrefix(line, "Name:") {
+			inDescription = false
 			name = strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
 		} else if strings.HasPrefix(line, "Description:") {
-			description = strings.TrimSpace(strings.TrimPrefix(line, "Description:"))
+			inDescription = true
+			descLines = append(descLines, strings.TrimSpace(strings.TrimPrefix(line, "Description:")))
+		} else if inDescription {
+			descLines = append(descLines, line)
 		}
 	}
+	if len(descLines) > 0 {
+		description = strings.Join(descLines, "\n")
+		description = strings.TrimRight(description, "\n")
+	}
 	return
+}
+
+// statusClearCmd は3秒後にステータスメッセージをクリアするコマンドを返す
+func statusClearCmd() tea.Cmd {
+	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+		return statusClearMsg{}
+	})
+}
+
+// handleOpenURL は'o'キー押下時のURL処理を行う
+func (m model) handleOpenURL() (tea.Model, tea.Cmd) {
+	if len(m.visible) == 0 || m.cursor >= len(m.visible) {
+		return m, nil
+	}
+	t := m.visible[m.cursor]
+	urls := extractURLs(t.Description)
+
+	switch len(urls) {
+	case 0:
+		m.statusMessage = "URLが見つかりません"
+		return m, statusClearCmd()
+	case 1:
+		if err := openURL(urls[0]); err != nil {
+			m.statusMessage = fmt.Sprintf("URLを開けませんでした: %s", err)
+		} else {
+			display := truncateURL(urls[0], 50)
+			m.statusMessage = fmt.Sprintf("URLを開きました: %s", display)
+		}
+		return m, statusClearCmd()
+	default:
+		m.urlSelectMode = true
+		m.urlCandidates = urls
+		m.urlCursor = 0
+		return m, nil
+	}
+}
+
+// handleURLSelectKey はURL選択モード中のキー処理を行う
+func (m model) handleURLSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.urlSelectMode = false
+		m.urlCandidates = nil
+		m.urlCursor = 0
+		return m, nil
+
+	case "up", "k":
+		if m.urlCursor > 0 {
+			m.urlCursor--
+		}
+		return m, nil
+
+	case "down", "j":
+		if m.urlCursor < len(m.urlCandidates)-1 {
+			m.urlCursor++
+		}
+		return m, nil
+
+	case "enter":
+		if m.urlCursor < len(m.urlCandidates) {
+			url := m.urlCandidates[m.urlCursor]
+			m.urlSelectMode = false
+			m.urlCandidates = nil
+			m.urlCursor = 0
+			if err := openURL(url); err != nil {
+				m.statusMessage = fmt.Sprintf("URLを開けませんでした: %s", err)
+			} else {
+				display := truncateURL(url, 50)
+				m.statusMessage = fmt.Sprintf("URLを開きました: %s", display)
+			}
+			return m, statusClearCmd()
+		}
+		return m, nil
+
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0]-'0') - 1
+		if idx < len(m.urlCandidates) {
+			url := m.urlCandidates[idx]
+			m.urlSelectMode = false
+			m.urlCandidates = nil
+			m.urlCursor = 0
+			if err := openURL(url); err != nil {
+				m.statusMessage = fmt.Sprintf("URLを開けませんでした: %s", err)
+			} else {
+				display := truncateURL(url, 50)
+				m.statusMessage = fmt.Sprintf("URLを開きました: %s", display)
+			}
+			return m, statusClearCmd()
+		}
+		return m, nil
+	}
+
+	// その他のキーは無視
+	return m, nil
 }

@@ -147,6 +147,24 @@ func TestParseEditorFile(t *testing.T) {
 			wantName: "",
 			wantDesc: "",
 		},
+		{
+			name:     "複数行の説明文",
+			content:  "Name: タスク名\nDescription: 1行目\n2行目\n3行目\n---\nこの行は無視\n",
+			wantName: "タスク名",
+			wantDesc: "1行目\n2行目\n3行目",
+		},
+		{
+			name:     "複数行の説明文(区切り線なし)",
+			content:  "Name: タスク名\nDescription: 1行目\n2行目\n",
+			wantName: "タスク名",
+			wantDesc: "1行目\n2行目",
+		},
+		{
+			name:     "説明文が空行を含む",
+			content:  "Name: タスク名\nDescription: 1行目\n\n3行目\n---\n",
+			wantName: "タスク名",
+			wantDesc: "1行目\n\n3行目",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

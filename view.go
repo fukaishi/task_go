@@ -71,10 +71,16 @@ func (m model) View() string {
 	var sections []string
 	sections = append(sections, activeSection)
 	sections = append(sections, m.renderListSection())
-	if m.showDetail {
+	if m.urlSelectMode {
+		sections = append(sections, m.renderURLSelectSection())
+	} else if m.showDetail {
 		sections = append(sections, m.renderDetailSection())
 	}
-	sections = append(sections, m.renderHelpSection())
+	if m.statusMessage != "" {
+		sections = append(sections, m.renderStatusMessage())
+	} else {
+		sections = append(sections, m.renderHelpSection())
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
@@ -197,10 +203,10 @@ func (m model) renderDetailSection() string {
 
 	lines := []string{
 		fmt.Sprintf("ID:     #%d", t.ID),
-		fmt.Sprintf("名前:   %s", t.Name),
-		fmt.Sprintf("説明:   %s", desc),
 		fmt.Sprintf("状態:   %s", t.Status.Label()),
 		fmt.Sprintf("優先度: %s", t.Priority.Label()),
+		fmt.Sprintf("名前:   %s", t.Name),
+		formatDescription(desc),
 		fmt.Sprintf("作成:   %s", t.CreatedAt.Format("2006-01-02 15:04")),
 		fmt.Sprintf("更新:   %s", t.UpdatedAt.Format("2006-01-02 15:04")),
 	}
@@ -211,9 +217,53 @@ func (m model) renderDetailSection() string {
 	return title + "\n" + box
 }
 
+// formatDescription は説明文を複数行対応でフォーマットする
+func formatDescription(desc string) string {
+	parts := strings.Split(desc, "\n")
+	if len(parts) <= 1 {
+		return fmt.Sprintf("説明:   %s", desc)
+	}
+	lines := make([]string, len(parts))
+	lines[0] = fmt.Sprintf("説明:   %s", parts[0])
+	for i := 1; i < len(parts); i++ {
+		lines[i] = fmt.Sprintf("        %s", parts[i])
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderURLSelectSection はURL選択パネルを描画する
+func (m model) renderURLSelectSection() string {
+	title := titleStyle.Render(" URL選択 ")
+
+	var lines []string
+	for i, u := range m.urlCandidates {
+		num := fmt.Sprintf("%d. ", i+1)
+		display := truncateURL(u, m.contentWidth()-6)
+		if i == m.urlCursor {
+			lines = append(lines, cursorStyle.Render("> "+num+display))
+		} else {
+			lines = append(lines, normalStyle.Render("  "+num+display))
+		}
+	}
+	lines = append(lines, "")
+	lines = append(lines, helpStyle.Render("j/k:移動 Enter:開く 1-9:番号選択 Esc:戻る"))
+
+	content := strings.Join(lines, "\n")
+	w := m.contentWidth()
+	box := sectionStyle.Width(w).Render(content)
+	return title + "\n" + box
+}
+
+// renderStatusMessage はステータスメッセージをヘルプ領域の代わりに表示する
+func (m model) renderStatusMessage() string {
+	content := helpStyle.Render(m.statusMessage)
+	w := m.contentWidth()
+	return sectionStyle.Width(w).Render(content)
+}
+
 // renderHelpSection はショートカットキー一覧を描画する
 func (m model) renderHelpSection() string {
-	line1 := "a:追加 e:編集 t:作業中 w:確認待ち u:未着手 f:完了"
+	line1 := "a:追加 e:編集 t:作業中 w:確認待ち u:未着手 f:完了 o:URL"
 	line2 := "h:高 m:中 l:低 j/↓:下 k/↑:上 Space:詳細 q:終了"
 	content := helpStyle.Render(line1) + "\n" + helpStyle.Render(line2)
 
@@ -228,12 +278,12 @@ func formatTaskLine(t Task, selected bool) string {
 	// 優先度ラベル
 	priorityLabel := formatPriority(t.Priority)
 
-	line := fmt.Sprintf("[%s] [%s] #%d %s", statusLabel, priorityLabel, t.ID, t.Name)
+	line := fmt.Sprintf("#%d [%s] [%s] %s", t.ID, statusLabel, priorityLabel, t.Name)
 
 	if selected {
-		return cursorStyle.Render("> " + line)
+		return cursorStyle.Render("> ") + line
 	}
-	return normalStyle.Render("  " + line)
+	return "  " + line
 }
 
 // formatStatus はステータスに応じたスタイル付きラベルを返す
